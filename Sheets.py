@@ -1,54 +1,57 @@
 import pandas as pd
-import dask.dataframe as dd
+import re
+
 
 def valida_cpf(cpf):
+
     cpf = str(cpf)
-    if len(cpf)!= 11:
+    if len(cpf) != 11 or not cpf.isdigit():
         return False
-    if not cpf.isdigit():
-        return False
-    soma = 0
-    for i in range(9):
-        soma += int(cpf[i]) * (10 - i)
-    resto = (soma * 10) % 11
-    if resto == 10 or resto == 11:
-        resto = 0
-    if resto!= int(cpf[9]):
-        return False
-    soma = 0
-    for i in range(10):
-        soma += int(cpf[i]) * (11 - i)
-    resto = (soma * 10) % 11
-    if resto == 10 or resto == 11:
-        resto = 0
-    if resto!= int(cpf[10]):
-        return False
-    return True
 
-def valida_cpf_batch(df):
-    df['CPF_VALIDO'] = df['CPF'].apply(valida_cpf)
-    df_validado = df[df['CPF_VALIDO']]
-    df_validado = df_validado.drop_duplicates(subset='CPF')
-    return df_validado
 
-df = pd.read_excel('CLARO _21_filtrado.xlsx', na_values=['', 'NA', 'nan'])
-print(df.columns)
+    soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
+    digito_1 = (soma % 11)
+    digito_1 = 0 if digito_1 < 2 else 11 - digito_1
+
+    if digito_1 != int(cpf[9]):
+        return False
+
+
+    soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
+    digito_2 = (soma % 11)
+    digito_2 = 0 if digito_2 < 2 else 11 - digito_2
+
+    return digito_2 == int(cpf[10])
+
+
+def extrai_numero_atualiza_endereco(endereco):
+    if pd.isna(endereco) or endereco == '':
+        return None, None
+
+    # Extrair o número e remover do endereço
+    match = re.search(r'\s+(\d+)$', str(endereco))
+    if match:
+        numero = match.group(1)
+        endereco_atualizado = re.sub(r'\s+\d+$', '', str(endereco)).strip()
+        return endereco_atualizado, numero
+    else:
+        return endereco, None
+
+df = pd.read_excel('ARQ ENEL 08.xlsx', na_values=['', 'NA', 'nan'])
+
+
 df = df.dropna(subset=['CPF'])
 
-ddf = dd.from_pandas(df, npartitions=4)
 
-ddf_validado = ddf.map_partitions(valida_cpf_batch).compute()
+df['cpf_valido'] = df['CPF'].apply(valida_cpf)
 
-cpf_invalidos_count = len(df) - len(ddf_validado)
-print(f"Número total de CPFs inválidos ou duplicados: {cpf_invalidos_count}")
 
-ddf_validado = ddf_validado.drop_duplicates(subset='CPF')
+df[['Endereco', 'numero']] = df['Endereco'].apply(extrai_numero_atualiza_endereco).apply(pd.Series)
 
-cpf_invalidos_count = len(ddf_validado) - len(ddf_validado[ddf_validado['CPF_VALIDO']])
-print(f"Número total de CPFs inválidos na segunda verificação: {cpf_invalidos_count}")
 
-print("\nPlanilha após a segunda validação e filtragem:")
-print(ddf_validado[ddf_validado['CPF_VALIDO']])
+df_filtrado = df[(df['cpf_valido']) & (df['numero'].notnull())]
 
-ddf_validado = ddf_validado[ddf_validado['CPF_VALIDO']]
-ddf_validado.to_excel('test1_filtrado.xlsx', index=False, engine='openpyxl')
+
+df_filtrado.to_excel('ARQ ENEL 08_filtrado.xlsx', index=False, engine='openpyxl')
+
+print("\nPlanilha filtrada salva em 'ARQ ENEL 08_filtrado.xlsx'.")
